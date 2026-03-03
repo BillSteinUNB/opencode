@@ -1,3 +1,4 @@
+import UIKit
 import WebKit
 import UniformTypeIdentifiers
 
@@ -82,6 +83,7 @@ final class BridgeController: NSObject, WKScriptMessageHandler, WKNavigationDele
   private let gestures = GestureBridge()
   private let keyboard = KeyboardBridge()
   private weak var webView: WKWebView?
+  private var refresh: UIRefreshControl?
   private var schemeHandler: LocalFileSchemeHandler?
 
   var configuration: WKWebViewConfiguration {
@@ -112,6 +114,11 @@ final class BridgeController: NSObject, WKScriptMessageHandler, WKNavigationDele
   func attach(to webView: WKWebView) {
     self.webView = webView
     webView.navigationDelegate = self
+    webView.scrollView.alwaysBounceVertical = true
+    let refresh = UIRefreshControl()
+    refresh.addTarget(self, action: #selector(onRefresh), for: .valueChanged)
+    webView.scrollView.refreshControl = refresh
+    self.refresh = refresh
     platform.webView = webView
     gestures.attach(to: webView) { [weak self] type, payload in
       self?.sendEvent(type: type, payload: payload)
@@ -205,18 +212,25 @@ final class BridgeController: NSObject, WKScriptMessageHandler, WKNavigationDele
     webView.evaluateJavaScript(script, completionHandler: nil)
   }
 
+  @objc private func onRefresh() {
+    webView?.reload()
+  }
+
   // MARK: - WKNavigationDelegate
 
   func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+    refresh?.endRefreshing()
     print("[OpenCode] Loaded: \(webView.url?.absoluteString ?? "nil")")
     platform.webContentDidLoad()
   }
 
   func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+    refresh?.endRefreshing()
     print("[OpenCode] Load failed: \(error.localizedDescription)")
   }
 
   func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+    refresh?.endRefreshing()
     print("[OpenCode] Navigation failed: \(error.localizedDescription)")
   }
 }
