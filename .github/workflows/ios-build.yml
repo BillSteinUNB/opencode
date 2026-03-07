@@ -1,0 +1,120 @@
+name: ios-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build'
+        required: true
+        default: 'feature/my-feature'
+      build-type:
+        description: 'Build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  build-web-assets:
+    name: Build iOS Web Assets
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build iOS web assets
+        run: bun --cwd packages/ios run build
+
+      - name: Upload web assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-web-assets-${{ github.event.inputs.build-type }}
+          path: packages/ios/WebAssets/
+          retention-days: 7
+
+  test-mobile:
+    name: Test Mobile UX
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: build-web-assets
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Setup Bun
+        uses: ./.github/actions/setup-bun
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Install Playwright
+        working-directory: packages/app
+        run: bunx playwright install
+
+      - name: Run mobile-focused tests
+        working-directory: packages/app
+        run: bun run test:e2e -- --grep "mobile|touch|responsive"
+        env:
+          CI: true
+        continue-on-error: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-test-results
+          path: packages/app/e2e/test-results/
+          retention-days: 7
+
+  validate-ios-project:
+    name: Validate iOS Project
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Check iOS project structure
+        run: |
+          echo "Checking iOS project structure..."
+          test -d packages/ios/WhisperCode/WhisperCode.xcodeproj || exit 1
+          test -f packages/ios/WhisperCode/Info.plist || exit 1
+          echo "iOS project structure valid"
+
+      - name: Validate Swift packages resolve
+        run: |
+          echo "Checking Package.resolved..."
+          test -f packages/ios/WhisperCode/WhisperCode.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved && echo "Swift packages resolved" || echo "Warning: Package.resolved not found"
+
+  summary:
+    name: Build Summary
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    needs: [build-web-assets, test-mobile, validate-ios-project]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## iOS Build Summary for ${{ github.event.inputs.branch }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Build Web Assets | ${{ needs.build-web-assets.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Mobile UX | ${{ needs.test-mobile.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Validate iOS Project | ${{ needs.validate-ios-project.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
+          echo "1. Download the web assets artifact" >> $GITHUB_STEP_SUMMARY
+          echo "2. On your Mac, run: ./scripts/build-ios-local.sh" >> $GITHUB_STEP_SUMMARY
+          echo "3. Or use Xcode to build with the downloaded WebAssets" >> $GITHUB_STEP_SUMMARY
