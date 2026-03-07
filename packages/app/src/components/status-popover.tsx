@@ -5,6 +5,7 @@ import { Popover } from "@opencode-ai/ui/popover"
 import { Switch } from "@opencode-ai/ui/switch"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { showToast } from "@opencode-ai/ui/toast"
+import { createMediaQuery } from "@solid-primitives/media"
 import { useNavigate } from "@solidjs/router"
 import { type Accessor, createEffect, createMemo, createSignal, For, type JSXElement, onCleanup, Show } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
@@ -169,6 +170,7 @@ export function StatusPopover() {
   const navigate = useNavigate()
 
   const fetcher = platform.fetch ?? globalThis.fetch
+  const isMobile = createMediaQuery("(max-width: 767px)")
   const servers = createMemo(() => {
     const current = server.current
     const list = server.list
@@ -188,6 +190,7 @@ export function StatusPopover() {
   const plugins = createMemo(() => sync.data.config.plugin ?? [])
   const pluginCount = createMemo(() => plugins().length)
   const pluginEmpty = createMemo(() => pluginEmptyMessage(language.t("dialog.plugins.empty"), "opencode.json"))
+  const currentServer = createMemo(() => server.name || language.t("dialog.server.empty"))
   const overallHealthy = createMemo(() => {
     const serverHealthy = server.healthy() === true
     const anyMcpIssue = mcpNames().some((name) => {
@@ -197,221 +200,242 @@ export function StatusPopover() {
     return serverHealthy && !anyMcpIssue
   })
 
-  return (
-    <Popover
-      triggerAs={Button}
-      triggerProps={{
-        variant: "ghost",
-        class:
-          "rounded-md h-[24px] pr-3 pl-0.5 gap-2 border border-border-weak-base bg-surface-panel shadow-none data-[expanded]:bg-surface-base-active",
-        style: { scale: 1 },
-      }}
-      trigger={
-        <div class="flex items-center gap-0.5">
-          <div class="size-4 flex items-center justify-center">
-            <div
-              classList={{
-                "size-1.5 rounded-full": true,
-                "bg-icon-success-base": overallHealthy(),
-                "bg-icon-critical-base": !overallHealthy() && server.healthy() !== undefined,
-                "bg-border-weak-base": server.healthy() === undefined,
-              }}
-            />
-          </div>
-          <span class="text-12-regular text-text-strong">{language.t("status.popover.trigger")}</span>
+  const openSwitcher = () => dialog.show(() => <DialogSelectServer intent="switch" />, defaultServer.refresh)
+  const trigger = (
+    <div class="flex min-w-0 items-center gap-2">
+      <div class="flex items-center gap-1.5 min-w-0">
+        <div class="size-4 flex items-center justify-center shrink-0">
+          <div
+            classList={{
+              "size-1.5 rounded-full": true,
+              "bg-icon-success-base": overallHealthy(),
+              "bg-icon-critical-base": !overallHealthy() && server.healthy() !== undefined,
+              "bg-border-weak-base": server.healthy() === undefined,
+            }}
+          />
         </div>
-      }
-      class="[&_[data-slot=popover-body]]:p-0 w-[360px] max-w-[calc(100vw-40px)] bg-transparent border-0 shadow-none rounded-xl"
-      gutter={4}
-      placement="bottom-end"
-      shift={-136}
-    >
-      <div class="flex items-center gap-1 w-[360px] rounded-xl shadow-[var(--shadow-lg-border-base)]">
-        <Tabs
-          aria-label={language.t("status.popover.ariaLabel")}
-          class="tabs bg-background-strong rounded-xl overflow-hidden"
-          data-component="tabs"
-          data-active="servers"
-          defaultValue="servers"
-          variant="alt"
-        >
-          <Tabs.List data-slot="tablist" class="bg-transparent border-b-0 px-4 pt-2 pb-0 gap-4 h-10">
-            <Tabs.Trigger value="servers" data-slot="tab" class="text-12-regular">
-              {sortedServers().length > 0 ? `${sortedServers().length} ` : ""}
-              {language.t("status.popover.tab.servers")}
-            </Tabs.Trigger>
-            <Tabs.Trigger value="mcp" data-slot="tab" class="text-12-regular">
-              {mcpConnected() > 0 ? `${mcpConnected()} ` : ""}
-              {language.t("status.popover.tab.mcp")}
-            </Tabs.Trigger>
-            <Tabs.Trigger value="lsp" data-slot="tab" class="text-12-regular">
-              {lspCount() > 0 ? `${lspCount()} ` : ""}
-              {language.t("status.popover.tab.lsp")}
-            </Tabs.Trigger>
-            <Tabs.Trigger value="plugins" data-slot="tab" class="text-12-regular">
-              {pluginCount() > 0 ? `${pluginCount()} ` : ""}
-              {language.t("status.popover.tab.plugins")}
-            </Tabs.Trigger>
-          </Tabs.List>
-
-          <Tabs.Content value="servers">
-            <div class="flex flex-col px-2 pb-2">
-              <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
-                <For each={sortedServers()}>
-                  {(s) => {
-                    const key = ServerConnection.key(s)
-                    const isBlocked = () => health[key]?.healthy === false
-                    return (
-                      <button
-                        type="button"
-                        class="flex items-center gap-2 w-full h-8 pl-3 pr-1.5 py-1.5 rounded-md transition-colors text-left"
-                        classList={{
-                          "hover:bg-surface-raised-base-hover": !isBlocked(),
-                          "cursor-not-allowed": isBlocked(),
-                        }}
-                        aria-disabled={isBlocked()}
-                        onClick={() => {
-                          if (isBlocked()) return
-                          server.setActive(key)
-                          navigate("/")
-                        }}
-                      >
-                        <ServerRow
-                          conn={s}
-                          status={health[key]}
-                          dimmed={isBlocked()}
-                          class="flex items-center gap-2 w-full min-w-0"
-                          nameClass="text-14-regular text-text-base truncate"
-                          versionClass="text-12-regular text-text-weak truncate"
-                          badge={
-                            <Show when={key === defaultServer.key()}>
-                              <span class="text-11-regular text-text-base bg-surface-base px-1.5 py-0.5 rounded-md">
-                                {language.t("common.default")}
-                              </span>
-                            </Show>
-                          }
-                        >
-                          <div class="flex-1" />
-                          <Show when={server.current && key === ServerConnection.key(server.current)}>
-                            <Icon name="check" size="small" class="text-icon-weak shrink-0" />
-                          </Show>
-                        </ServerRow>
-                      </button>
-                    )
-                  }}
-                </For>
-
-                <Button
-                  variant="secondary"
-                  class="mt-3 self-start h-8 px-3 py-1.5"
-                  onClick={() => dialog.show(() => <DialogSelectServer />, defaultServer.refresh)}
-                >
-                  {language.t("status.popover.action.manageServers")}
-                </Button>
-              </div>
-            </div>
-          </Tabs.Content>
-
-          <Tabs.Content value="mcp">
-            <div class="flex flex-col px-2 pb-2">
-              <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
-                <Show
-                  when={mcpNames().length > 0}
-                  fallback={
-                    <div class="text-14-regular text-text-base text-center my-auto">
-                      {language.t("dialog.mcp.empty")}
-                    </div>
-                  }
-                >
-                  <For each={mcpNames()}>
-                    {(name) => {
-                      const status = () => mcpStatus(name)
-                      const enabled = () => status() === "connected"
-                      return (
-                        <button
-                          type="button"
-                          class="flex items-center gap-2 w-full h-8 pl-3 pr-2 py-1 rounded-md hover:bg-surface-raised-base-hover transition-colors text-left"
-                          onClick={() => mcp.toggle(name)}
-                          disabled={mcp.loading() === name}
-                        >
-                          <div
-                            classList={{
-                              "size-1.5 rounded-full shrink-0": true,
-                              "bg-icon-success-base": status() === "connected",
-                              "bg-icon-critical-base": status() === "failed",
-                              "bg-border-weak-base": status() === "disabled",
-                              "bg-icon-warning-base":
-                                status() === "needs_auth" || status() === "needs_client_registration",
-                            }}
-                          />
-                          <span class="text-14-regular text-text-base truncate flex-1">{name}</span>
-                          <div onClick={(event) => event.stopPropagation()}>
-                            <Switch
-                              checked={enabled()}
-                              disabled={mcp.loading() === name}
-                              onChange={() => mcp.toggle(name)}
-                            />
-                          </div>
-                        </button>
-                      )
-                    }}
-                  </For>
-                </Show>
-              </div>
-            </div>
-          </Tabs.Content>
-
-          <Tabs.Content value="lsp">
-            <div class="flex flex-col px-2 pb-2">
-              <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
-                <Show
-                  when={lspItems().length > 0}
-                  fallback={
-                    <div class="text-14-regular text-text-base text-center my-auto">
-                      {language.t("dialog.lsp.empty")}
-                    </div>
-                  }
-                >
-                  <For each={lspItems()}>
-                    {(item) => (
-                      <div class="flex items-center gap-2 w-full px-2 py-1">
-                        <div
-                          classList={{
-                            "size-1.5 rounded-full shrink-0": true,
-                            "bg-icon-success-base": item.status === "connected",
-                            "bg-icon-critical-base": item.status === "error",
-                          }}
-                        />
-                        <span class="text-14-regular text-text-base truncate">{item.name || item.id}</span>
-                      </div>
-                    )}
-                  </For>
-                </Show>
-              </div>
-            </div>
-          </Tabs.Content>
-
-          <Tabs.Content value="plugins">
-            <div class="flex flex-col px-2 pb-2">
-              <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
-                <Show
-                  when={plugins().length > 0}
-                  fallback={<div class="text-14-regular text-text-base text-center my-auto">{pluginEmpty()}</div>}
-                >
-                  <For each={plugins()}>
-                    {(plugin) => (
-                      <div class="flex items-center gap-2 w-full px-2 py-1">
-                        <div class="size-1.5 rounded-full shrink-0 bg-icon-success-base" />
-                        <span class="text-14-regular text-text-base truncate">{plugin}</span>
-                      </div>
-                    )}
-                  </For>
-                </Show>
-              </div>
-            </div>
-          </Tabs.Content>
-        </Tabs>
+        <span class="text-12-medium text-text-strong shrink-0">{language.t("status.popover.trigger")}</span>
+        <span class="min-w-0 truncate text-12-regular text-text-weak">{currentServer()}</span>
       </div>
-    </Popover>
+      <Icon name="chevron-down" size="small" class="shrink-0 text-icon-weak" />
+    </div>
+  )
+
+  return (
+    <Show
+      when={isMobile()}
+      fallback={
+        <Popover
+          triggerAs={Button}
+          triggerProps={{
+            variant: "ghost",
+            class:
+              "rounded-md h-[24px] pr-2 pl-2 gap-1.5 border border-border-weak-base bg-surface-panel shadow-none data-[expanded]:bg-surface-base-active max-w-[220px]",
+            style: { scale: 1 },
+          }}
+          trigger={trigger}
+          class="[&_[data-slot=popover-body]]:p-0 w-[360px] max-w-[calc(100vw-40px)] bg-transparent border-0 shadow-none rounded-xl"
+          gutter={4}
+          placement="bottom-end"
+          shift={-136}
+        >
+          <div class="flex items-center gap-1 w-[360px] rounded-xl shadow-[var(--shadow-lg-border-base)]">
+            <Tabs
+              aria-label={language.t("status.popover.ariaLabel")}
+              class="tabs bg-background-strong rounded-xl overflow-hidden"
+              data-component="tabs"
+              data-active="servers"
+              defaultValue="servers"
+              variant="alt"
+            >
+              <Tabs.List data-slot="tablist" class="bg-transparent border-b-0 px-4 pt-2 pb-0 gap-4 h-10">
+                <Tabs.Trigger value="servers" data-slot="tab" class="text-12-regular">
+                  {sortedServers().length > 0 ? `${sortedServers().length} ` : ""}
+                  {language.t("status.popover.tab.servers")}
+                </Tabs.Trigger>
+                <Tabs.Trigger value="mcp" data-slot="tab" class="text-12-regular">
+                  {mcpConnected() > 0 ? `${mcpConnected()} ` : ""}
+                  {language.t("status.popover.tab.mcp")}
+                </Tabs.Trigger>
+                <Tabs.Trigger value="lsp" data-slot="tab" class="text-12-regular">
+                  {lspCount() > 0 ? `${lspCount()} ` : ""}
+                  {language.t("status.popover.tab.lsp")}
+                </Tabs.Trigger>
+                <Tabs.Trigger value="plugins" data-slot="tab" class="text-12-regular">
+                  {pluginCount() > 0 ? `${pluginCount()} ` : ""}
+                  {language.t("status.popover.tab.plugins")}
+                </Tabs.Trigger>
+              </Tabs.List>
+
+              <Tabs.Content value="servers">
+                <div class="flex flex-col px-2 pb-2">
+                  <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+                    <For each={sortedServers()}>
+                      {(s) => {
+                        const key = ServerConnection.key(s)
+                        const isBlocked = () => health[key]?.healthy === false
+                        return (
+                          <button
+                            type="button"
+                            class="flex items-center gap-2 w-full h-8 pl-3 pr-1.5 py-1.5 rounded-md transition-colors text-left"
+                            classList={{
+                              "hover:bg-surface-raised-base-hover": !isBlocked(),
+                              "cursor-not-allowed": isBlocked(),
+                            }}
+                            aria-disabled={isBlocked()}
+                            onClick={() => {
+                              if (isBlocked()) return
+                              server.setActive(key)
+                              navigate("/")
+                            }}
+                          >
+                            <ServerRow
+                              conn={s}
+                              status={health[key]}
+                              dimmed={isBlocked()}
+                              class="flex items-center gap-2 w-full min-w-0"
+                              nameClass="text-14-regular text-text-base truncate"
+                              versionClass="text-12-regular text-text-weak truncate"
+                              badge={
+                                <Show when={key === defaultServer.key()}>
+                                  <span class="text-11-regular text-text-base bg-surface-base px-1.5 py-0.5 rounded-md">
+                                    {language.t("common.default")}
+                                  </span>
+                                </Show>
+                              }
+                            >
+                              <div class="flex-1" />
+                              <Show when={server.current && key === ServerConnection.key(server.current)}>
+                                <Icon name="check" size="small" class="text-icon-weak shrink-0" />
+                              </Show>
+                            </ServerRow>
+                          </button>
+                        )
+                      }}
+                    </For>
+
+                    <Button
+                      variant="secondary"
+                      class="mt-3 self-start h-8 px-3 py-1.5"
+                      onClick={() => dialog.show(() => <DialogSelectServer />, defaultServer.refresh)}
+                    >
+                      {language.t("status.popover.action.manageServers")}
+                    </Button>
+                  </div>
+                </div>
+              </Tabs.Content>
+
+              <Tabs.Content value="mcp">
+                <div class="flex flex-col px-2 pb-2">
+                  <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+                    <Show
+                      when={mcpNames().length > 0}
+                      fallback={
+                        <div class="text-14-regular text-text-base text-center my-auto">
+                          {language.t("dialog.mcp.empty")}
+                        </div>
+                      }
+                    >
+                      <For each={mcpNames()}>
+                        {(name) => {
+                          const status = () => mcpStatus(name)
+                          const enabled = () => status() === "connected"
+                          return (
+                            <button
+                              type="button"
+                              class="flex items-center gap-2 w-full h-8 pl-3 pr-2 py-1 rounded-md hover:bg-surface-raised-base-hover transition-colors text-left"
+                              onClick={() => mcp.toggle(name)}
+                              disabled={mcp.loading() === name}
+                            >
+                              <div
+                                classList={{
+                                  "size-1.5 rounded-full shrink-0": true,
+                                  "bg-icon-success-base": status() === "connected",
+                                  "bg-icon-critical-base": status() === "failed",
+                                  "bg-border-weak-base": status() === "disabled",
+                                  "bg-icon-warning-base":
+                                    status() === "needs_auth" || status() === "needs_client_registration",
+                                }}
+                              />
+                              <span class="text-14-regular text-text-base truncate flex-1">{name}</span>
+                              <div onClick={(event) => event.stopPropagation()}>
+                                <Switch
+                                  checked={enabled()}
+                                  disabled={mcp.loading() === name}
+                                  onChange={() => mcp.toggle(name)}
+                                />
+                              </div>
+                            </button>
+                          )
+                        }}
+                      </For>
+                    </Show>
+                  </div>
+                </div>
+              </Tabs.Content>
+
+              <Tabs.Content value="lsp">
+                <div class="flex flex-col px-2 pb-2">
+                  <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+                    <Show
+                      when={lspItems().length > 0}
+                      fallback={
+                        <div class="text-14-regular text-text-base text-center my-auto">
+                          {language.t("dialog.lsp.empty")}
+                        </div>
+                      }
+                    >
+                      <For each={lspItems()}>
+                        {(item) => (
+                          <div class="flex items-center gap-2 w-full px-2 py-1">
+                            <div
+                              classList={{
+                                "size-1.5 rounded-full shrink-0": true,
+                                "bg-icon-success-base": item.status === "connected",
+                                "bg-icon-critical-base": item.status === "error",
+                              }}
+                            />
+                            <span class="text-14-regular text-text-base truncate">{item.name || item.id}</span>
+                          </div>
+                        )}
+                      </For>
+                    </Show>
+                  </div>
+                </div>
+              </Tabs.Content>
+
+              <Tabs.Content value="plugins">
+                <div class="flex flex-col px-2 pb-2">
+                  <div class="flex flex-col p-3 bg-background-base rounded-sm min-h-14">
+                    <Show
+                      when={plugins().length > 0}
+                      fallback={<div class="text-14-regular text-text-base text-center my-auto">{pluginEmpty()}</div>}
+                    >
+                      <For each={plugins()}>
+                        {(plugin) => (
+                          <div class="flex items-center gap-2 w-full px-2 py-1">
+                            <div class="size-1.5 rounded-full shrink-0 bg-icon-success-base" />
+                            <span class="text-14-regular text-text-base truncate">{plugin}</span>
+                          </div>
+                        )}
+                      </For>
+                    </Show>
+                  </div>
+                </div>
+              </Tabs.Content>
+            </Tabs>
+          </div>
+        </Popover>
+      }
+    >
+      <Button
+        variant="ghost"
+        class="rounded-md h-[24px] pr-2 pl-2 gap-1.5 border border-border-weak-base bg-surface-panel shadow-none max-w-[180px]"
+        style={{ scale: 1 }}
+        onClick={openSwitcher}
+      >
+        {trigger}
+      </Button>
+    </Show>
   )
 }

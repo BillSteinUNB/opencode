@@ -148,6 +148,15 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
       }
     }
 
+    async function refresh() {
+      const current_ = current()
+      if (!current_) return
+      const next = await check(current_)
+      if (ServerConnection.key(current_) !== state.active) return
+      setState("healthy", next)
+      return next
+    }
+
     function setActive(input: ServerConnection.Key) {
       if (state.active !== input) setState("active", input)
     }
@@ -203,6 +212,7 @@ export const { use: useServer, provider: ServerProvider } = createSimpleContext(
     return {
       ready: isReady,
       healthy,
+      refresh,
       isLocal,
       get key() {
         return state.active

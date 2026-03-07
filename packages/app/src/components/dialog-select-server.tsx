@@ -37,6 +37,8 @@ interface EditRowProps {
   onBlur: () => void
 }
 
+export type DialogSelectServerIntent = "manage" | "switch" | "add" | "edit"
+
 function showRequestError(language: ReturnType<typeof useLanguage>, err: unknown) {
   showToast({
     variant: "error",
@@ -165,7 +167,10 @@ function EditRow(props: EditRowProps) {
   )
 }
 
-export function DialogSelectServer() {
+export function DialogSelectServer(props: {
+  intent?: DialogSelectServerIntent
+  editKey?: ServerConnection.Key
+}) {
   const navigate = useNavigate()
   const dialog = useDialog()
   const server = useServer()
@@ -231,6 +236,10 @@ export function DialogSelectServer() {
   })
 
   const current = createMemo(() => items().find((x) => ServerConnection.key(x) === server.key) ?? items()[0])
+  const editableCurrent = createMemo(() => {
+    const key = props.editKey ?? server.key
+    return items().find((item) => item.type === "http" && ServerConnection.key(item) === key)
+  })
 
   const sortedItems = createMemo(() => {
     const list = items()
@@ -266,6 +275,30 @@ export function DialogSelectServer() {
     refreshHealth()
     const interval = setInterval(refreshHealth, 10_000)
     onCleanup(() => clearInterval(interval))
+  })
+
+  const seeded = { current: false }
+  createEffect(() => {
+    items()
+    if (seeded.current) return
+
+    if (props.intent === "add") {
+      seeded.current = true
+      setStore("addServer", { showForm: true, url: "", error: "", status: undefined })
+      return
+    }
+
+    if (props.intent !== "edit") return
+    const current = editableCurrent()
+    if (!current || current.type !== "http") return
+    seeded.current = true
+    setStore("editServer", {
+      id: current.http.url,
+      value: current.http.url,
+      error: "",
+      busy: false,
+      status: store.status[ServerConnection.key(current)]?.healthy,
+    })
   })
 
   async function select(conn: ServerConnection.Any, persist?: boolean) {
@@ -385,8 +418,13 @@ export function DialogSelectServer() {
   }
 
   return (
-    <Dialog title={language.t("dialog.server.title")}>
+    <Dialog title={props.intent === "switch" ? language.t("dialog.server.switch.title") : language.t("dialog.server.title")}>
       <div class="flex flex-col gap-2">
+        <Show when={props.intent === "switch"}>
+          <div class="px-5 pt-2">
+            <p class="text-12-regular text-text-weak">{language.t("dialog.server.switch.description")}</p>
+          </div>
+        </Show>
         <div ref={(el) => (listRoot = el)}>
           <List
             search={{

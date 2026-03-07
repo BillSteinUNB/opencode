@@ -20,9 +20,13 @@ import { AppIcon } from "@opencode-ai/ui/app-icon"
 import { DropdownMenu } from "@opencode-ai/ui/dropdown-menu"
 import { Tooltip, TooltipKeybind } from "@opencode-ai/ui/tooltip"
 import { Popover } from "@opencode-ai/ui/popover"
+import { Spinner } from "@opencode-ai/ui/spinner"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { Keybind } from "@opencode-ai/ui/keybind"
 import { showToast } from "@opencode-ai/ui/toast"
+import { useDialog } from "@opencode-ai/ui/context/dialog"
+import { DialogQuickCommit } from "@/components/dialog-quick-commit"
+import { useQuickCommit } from "@/context/quick-commit"
 import { StatusPopover } from "../status-popover"
 
 const OPEN_APPS = [
@@ -188,10 +192,12 @@ export function SessionHeader() {
   const layout = useLayout()
   const params = useParams()
   const command = useCommand()
+  const dialog = useDialog()
   const server = useServer()
   const sync = useSync()
   const platform = usePlatform()
   const language = useLanguage()
+  const quickCommit = useQuickCommit()
 
   const projectDirectory = createMemo(() => decode64(params.dir) ?? "")
   const project = createMemo(() => {
@@ -209,6 +215,20 @@ export function SessionHeader() {
   const currentSession = createMemo(() => sync.data.session.find((s) => s.id === params.id))
   const shareEnabled = createMemo(() => sync.data.config.share !== "disabled")
   const showShare = createMemo(() => shareEnabled() && !!currentSession())
+  const showQuickCommit = createMemo(
+    () =>
+      (platform.platform === "ios" || platform.platform === "android") &&
+      !!projectDirectory() &&
+      (project()?.vcs === "git" || !!sync.data.vcs?.branch),
+  )
+  const quickCommitLabel = createMemo(() => {
+    if (quickCommit.state.status === "success") return language.t("quickCommit.button.success")
+    if (quickCommit.state.status === "error") return language.t("quickCommit.button.retry")
+    if (quickCommit.state.phase === "staging") return language.t("quickCommit.button.staging")
+    if (quickCommit.state.phase === "committing") return language.t("quickCommit.button.committing")
+    if (quickCommit.state.phase === "pushing") return language.t("quickCommit.button.pushing")
+    return language.t("quickCommit.button.idle")
+  })
   const sessionKey = createMemo(() => `${params.dir}${params.id ? "/" + params.id : ""}`)
   const view = createMemo(() => layout.view(sessionKey))
   const os = createMemo(() => detectOS(platform))
@@ -337,6 +357,26 @@ export function SessionHeader() {
           <Portal mount={mount()}>
             <div class="flex items-center gap-2">
               <StatusPopover />
+              <Show when={showQuickCommit()}>
+                <Button
+                  variant="ghost"
+                  class="rounded-md h-[24px] px-2 gap-1.5 border border-border-weak-base bg-surface-panel shadow-none max-w-[132px]"
+                  disabled={quickCommit.running()}
+                  onClick={() =>
+                    dialog.show(
+                      () => <DialogQuickCommit directory={projectDirectory()} branch={sync.data.vcs?.branch} />,
+                    )
+                  }
+                >
+                  <Show
+                    when={quickCommit.running()}
+                    fallback={<Icon name="github" size="small" class="shrink-0 text-icon-weak" />}
+                  >
+                    <Spinner class="size-4 shrink-0" />
+                  </Show>
+                  <span class="truncate text-12-regular text-text-strong">{quickCommitLabel()}</span>
+                </Button>
+              </Show>
               <Show when={projectDirectory()}>
                 <div class="hidden xl:flex items-center">
                   <Show
